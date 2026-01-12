@@ -20,7 +20,7 @@ except ImportError:
     sys.exit(1)
 
 # Initialize Client
-api_key = "AIzaSyAOlZTqZZMjPCnh8m2MurslPDAS_H5qi8w"
+api_key = 
 if not api_key:
     print("⚠️  WARNING: GOOGLE_API_KEY not found. The script might fail.")
     # api_key = "Paste_Key_Here_If_Needed"
