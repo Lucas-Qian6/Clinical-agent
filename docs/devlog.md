@@ -28,7 +28,7 @@
         - See whether the teacher behaves weirdly
         - Find typical “danger patterns”
 
-## 
+## 2025-11-23
 - Statistic analysis of teacher models and found the sparcity of the training data (few sentences have obvious or strong emotions to tell)
 - Drew a work flow of the whole process of how to map discrete GoEmotions to consecutive emotions.
         
