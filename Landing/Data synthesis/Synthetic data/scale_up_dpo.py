@@ -1,194 +1,180 @@
-import os
-import sys
 import json
+import os
 import time
-import pandas as pd
-
-# --- SAFETY NETS ---
-try:
-    from google import genai
-    from google.genai import types
-except ImportError:
-    print("❌ Missing 'google-genai'. Run: pip install google-genai")
-    sys.exit(1)
-
-try:
-    from datasets import load_dataset
-except ImportError:
-    print("❌ Missing 'datasets'. Run: pip install datasets")
-    sys.exit(1)
-
-# Import your custom guards for real-time filtering
-try:
-    from clinical_guards import ClinicalGuard
-except ImportError:
-    print("⚠️ 'clinical_guards.py' not found. Running without BERT filters.")
-    ClinicalGuard = None
+import random
+from google import genai
+from google.genai import types
+from tqdm import tqdm
+from datasets import load_dataset
 
 # --- CONFIGURATION ---
-DATASET_NAME = "ShenLab/MentalChat16K"
-OUTPUT_FILE = "mentalchat_dpo_filtered.jsonl"
-LIMIT_SAMPLES = None 
-SAFETY_THRESHOLD = 0.8 
+API_KEY = ""
+MODEL_NAME = "gemini-2.0-flash" # Or "gemini-1.5-flash"
+OUTPUT_FILE = "gemini_generated_rejects.jsonl"
+NUM_SAMPLES = 50
 
-# --- API KEY ---
-# ⚠️ SECURITY: I removed the hardcoded key. Please ensure it is in your environment.
-api_key = os.environ.get("GOOGLE_API_KEY")
-if not api_key:
-    print("⚠️  WARNING: GOOGLE_API_KEY not found. Please export it.")
+UNSKILLED_THERAPIST_PROMPT = """
+You are a well-meaning but UNSKILLED friend acting as a therapist.
+Demonstrate 'Clinical Errors' for a dataset.
 
-client = genai.Client(api_key=api_key)
+Errors to simulate:
+1. Toxic Positivity.
+2. Premature Advice.
+3. Dismissal.
+4. Self-Centered.
 
-def call_gemini_with_backoff(system_prompt, user_prompt):
-    retries = 5
-    base_delay = 4
+CRITICAL LENGTH REQUIREMENT:
+Your response MUST be LONG and VERBOSE (aim for 150-250 words).
+Match the character count of a professional therapy response (~1500 chars).
+"""
+
+def setup_client():
+    if not API_KEY:
+        print("❌ Error: GOOGLE_API_KEY environment variable not set.")
+        return None
+    client = genai.Client(api_key=API_KEY)
+    return client
+
+def get_error_instruction():
+    errors = [
+        "ACT OUT ERROR 1: Toxic Positivity. Be aggressively happy.",
+        "ACT OUT ERROR 2: Premature Advice. Give a numbered list of tasks.",
+        "ACT OUT ERROR 3: Dismissal. Compare them to starving children.",
+        "ACT OUT ERROR 4: Self-Centered. Ignore them and talk about yourself."
+    ]
+    return random.choice(errors)
+
+def generate_with_retry(client, prompt, retries=3):
+    """
+    Tries to generate content multiple times with increased timeouts and checks for truncation.
+    """
+    current_prompt = prompt
+
     for attempt in range(retries):
         try:
+            # Generate using the new client.models syntax
+            # IMPORTANT: We cannot set 'timeout' in the new SDK config directly easily,
+            # but the client handles standard http timeouts better than the old lib.
             response = client.models.generate_content(
-                model='gemini-2.0-flash', 
-                contents=user_prompt,
+                model=MODEL_NAME,
+                contents=current_prompt,
                 config=types.GenerateContentConfig(
-                    system_instruction=system_prompt,
-                    temperature=0.9, 
-                    max_output_tokens=400,
+                    system_instruction=UNSKILLED_THERAPIST_PROMPT,
+                    temperature=0.9,
+                    top_p=0.95,
+                    max_output_tokens=1024,
+                    safety_settings=[
+                        types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold="BLOCK_NONE"),
+                        types.SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold="BLOCK_NONE"),
+                        types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="BLOCK_NONE"),
+                        types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_NONE"),
+                    ]
                 )
             )
-            time.sleep(0.5) 
-            return response.text
+
+            # Check for Empty Response (Blocked?)
+            if not response.text:
+                print(f"   ⚠️ Empty response. Retrying...")
+                time.sleep(2)
+                continue
+
+            text = response.text.strip()
+
+            # Check Length (Must be verbose)
+            if len(text) < 100:
+                print(f"   ⚠️ Response too short ({len(text)} chars). Retrying...")
+                current_prompt += "\n\n(IMPORTANT: PLEASE WRITE MORE. YOUR PREVIOUS ANSWER WAS TOO SHORT.)"
+                time.sleep(2)
+                continue
+
+            return text
+
         except Exception as e:
-            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                wait = base_delay * (2 ** attempt)
-                print(f"\n⏳ Quota hit. Sleeping {wait}s...", end="\r")
-                time.sleep(wait)
+            error_msg = str(e)
+            print(f"   ⚠️ Attempt {attempt+1}/{retries} failed: {error_msg[:100]}...")
+
+            if "429" in error_msg:
+                print("      (Rate Limit Hit. Sleeping 60s...)")
+                time.sleep(60)
+            elif "timed out" in error_msg or "deadline" in error_msg:
+                print("      (Timeout. Retrying in 10s...)")
+                time.sleep(10)
             else:
-                print(f"\n❌ API Error: {e}")
-                return None
+                time.sleep(5)
+
     return None
 
 def main():
-    guards = None
-    if ClinicalGuard:
-        print("🛡️ Initializing Clinical Guards (BERT)...")
-        guards = ClinicalGuard()
+    print("🚀 Script Starting (google.genai SDK)...")
+    client = setup_client()
+    if not client: return
 
-    print(f"📚 Loading dataset: {DATASET_NAME}...")
+    # 1. Load Data
+    print(f"📂 Loading ShenLab/MentalChat16K...")
     try:
-        ds = load_dataset(DATASET_NAME, split="train")
-        print(f"✅ Loaded {len(ds)} rows.")
-        
-        # --- CRITICAL DEBUGGING STEP ---
-        # This will print the exact column names so we know what we are working with
-        first_row = ds[0]
-        keys = list(first_row.keys())
-        print(f"\n🔍 DEBUG: The dataset has these columns: {keys}")
-        print(f"🔍 DEBUG: First row sample: {str(first_row)[:200]}...\n")
-        # -------------------------------
-
+        dataset = load_dataset("ShenLab/MentalChat16K", split="train")
     except Exception as e:
         print(f"❌ Error loading dataset: {e}")
         return
 
-    processed_prompts = set()
-    if os.path.exists(OUTPUT_FILE):
-        with open(OUTPUT_FILE, 'r', encoding='utf-8') as f:
-            for line in f:
-                try:
-                    data = json.loads(line)
-                    if data.get('prompt'):
-                        processed_prompts.add(data.get('prompt'))
-                except: pass
-        print(f"🔄 Resuming... Found {len(processed_prompts)} existing pairs.")
+    # 2. Filter Samples
+    samples = []
+    print("   Filtering dataset...")
 
-    print("🏭 Starting The Synthetic Factory...")
-    
-    count = 0
-    skipped_toxic = 0
-    skipped_parse = 0
-    
-    iterable_ds = list(ds)
-    if LIMIT_SAMPLES:
-        iterable_ds = iterable_ds[:LIMIT_SAMPLES]
+    for i, row in enumerate(dataset):
+        p_text = row.get('input')
+        g_resp = row.get('output')
 
-    for i, row in enumerate(iterable_ds):
-        # --- ROBUST CASE-INSENSITIVE MATCHING ---
-        # Convert all keys to lowercase to avoid 'Context' vs 'context' issues
-        row_lower = {k.lower(): v for k, v in row.items()}
-        
-        # Try finding the prompt in 'input' OR 'instruction' OR 'context'
-        prompt = (row_lower.get('input') or row_lower.get('instruction') or 
-                  row_lower.get('prompt') or row_lower.get('query') or 
-                  row_lower.get('context') or row_lower.get('history') or 
-                  row_lower.get('dialogue'))
-        
-        # Try finding the chosen response
-        chosen = (row_lower.get('output') or row_lower.get('response') or 
-                  row_lower.get('chosen') or row_lower.get('target') or 
-                  row_lower.get('assistant'))
+        if (p_text and g_resp and
+            isinstance(p_text, str) and isinstance(g_resp, str) and
+            len(p_text) > 5 and len(g_resp) > 20):
+            samples.append(row)
 
-        if not prompt or not chosen:
-            if skipped_parse < 1: # Only show first error
-                print(f"⚠️ Row {i} Skipped. Keys found: {list(row.keys())}")
-            skipped_parse += 1
-            continue
-            
-        if prompt in processed_prompts:
-            continue
+        if len(samples) >= NUM_SAMPLES:
+            break
 
-        print(f"Processing {i}/{len(iterable_ds)} | Saved: {count} | Toxic Dropped: {skipped_toxic}...", end="\r")
-        
-        # The average length of responses in this dataset is around 2k words, so we should let gemini generate longer outputs
-        # Or it will just learn to write short instead of bad responses.
-        system_instruction = """
-        You are a well-meaning but UNSKILLED friend acting as a therapist.
-        Demonstrate 'Clinical Errors' for a dataset.
-        
-        Errors to simulate (Choose one):
-        1. Toxic Positivity: Invalidating pain by forcing happiness. Rambling about how "everything is great" for a long time.
-        2. Premature Advice: Giving a long list of specific, detailed actions they should take immediately without listening.
-        3. Dismissal: Explaining at length why their problem isn't a big deal compared to others, citing personal examples.
-        4. Self-Centered: Telling a long, detailed personal story that tangentially relates to them.
+    print(f"   ✅ Collected {len(samples)} samples.")
 
-        CRITICAL LENGTH REQUIREMENT:
-        Your response MUST be LONG and VERBOSE (aim for 150-250 words).
-        Do NOT be brief.
-        - Use filler phrases.
-        - Tell a personal anecdote.
-        - List 3-4 bullet points of bad advice.
-        - Over-explain your point repeatedly.
-        
-        Goal: Match the character count of a professional therapy response (~1500 chars), but make the content clinical garbage.
-        """
-        
-        user_prompt = f"PATIENT: {prompt}\nBAD RESPONSE:"
-        rejected = call_gemini_with_backoff(system_instruction, user_prompt)
-        
-        if not rejected: continue 
+    if not samples:
+        print("❌ No valid samples found.")
+        return
 
-        tox_score = 0.0
-        if guards:
-            tox_score = guards.score_safety(rejected)
-            if tox_score > SAFETY_THRESHOLD:
-                skipped_toxic += 1
-                continue
-            
-        entry = {
-            "prompt": prompt,
-            "chosen": chosen,
-            "rejected": rejected,
-            "source": "MentalChat16K",
-            "safety_score": tox_score
-        }
-        
-        with open(OUTPUT_FILE, 'a', encoding='utf-8') as f:
-            f.write(json.dumps(entry) + "\n")
-            
-        count += 1
-        processed_prompts.add(prompt)
+    generated_data = []
 
-    print(f"\n\n✅ Job Complete.")
-    print(f"Total Valid Pairs: {count}")
-    print(f"Skipped (Missing Columns): {skipped_parse}")
-    print(f"Toxic Samples Discarded: {skipped_toxic}")
+    # 3. Generation Loop
+    print(f"⚡ Starting Generation Loop ({MODEL_NAME})...")
+
+    # MANUAL LOOP (No TQDM) for visibility
+    for row in tqdm(samples):
+
+        patient_input = row['input']
+        gold_response = row['output']
+        specific_error = get_error_instruction()
+        full_user_prompt = f"PATIENT SAYS: {patient_input}\n\nINSTRUCTION: {specific_error}"
+
+        # Use the Retry Wrapper
+        bad_response_text = generate_with_retry(client, full_user_prompt)
+
+        if bad_response_text:
+            generated_data.append({
+                "prompt": patient_input,
+                "chosen": gold_response,
+                "rejected": bad_response_text,
+                "error_type_simulated": specific_error
+            })
+
+        # Rate limit sleep (4s is safer for free tier than 0.5s)
+        time.sleep(1)
+
+    # 4. Save
+    if generated_data:
+        print(f"\n💾 Saving {len(generated_data)} rows to {OUTPUT_FILE}...")
+        with open(OUTPUT_FILE, 'w') as f:
+            for item in generated_data:
+                f.write(json.dumps(item) + "\n")
+        print("✅ SUCCESS. File saved.")
+    else:
+        print("\n❌ FAILURE. No data generated.")
 
 if __name__ == "__main__":
     main()
