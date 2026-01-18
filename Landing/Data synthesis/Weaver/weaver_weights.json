@@ -1,0 +1,7 @@
+{
+  "Clinical_Correctness": 0.5,
+  "Therapeutic_Tone": 0.5,
+  "Safety_Guard": 1.0,
+  "Clinical_Protocol": 2.0,
+  "Dialogue_Logic": 1.4424153185857251
+}
