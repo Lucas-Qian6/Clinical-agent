@@ -3,7 +3,7 @@ import os
 import sys
 
 # The file to fix
-TARGET_FILE = "final_dpo_training_set.jsonl"
+TARGET_FILE = "final_dpo_training_set.json"
 
 def fix_json_file(file_path):
     """
@@ -11,23 +11,23 @@ def fix_json_file(file_path):
     and converts it into a standard JSON list (e.g. [{obj}, {obj}]).
     """
     # COLAB-SPECIFIC: Check if file exists, if not, prompt upload
-    if not os.path.exists(file_path):
-        print(f"⚠️ File '{file_path}' not found in current directory.")
-        try:
-            import google.colab
-            print("   Detected Google Colab. Please upload your file now:")
-            from google.colab import files
-            uploaded = files.upload()
-            if uploaded:
-                # Use the uploaded filename (in case it differs)
-                file_path = list(uploaded.keys())[0]
-                print(f"   Received: {file_path}")
-            else:
-                print("   No file uploaded. Exiting.")
-                return
-        except ImportError:
-            print("   (Not in Colab, and file missing. Please check path.)")
-            return
+    # if not os.path.exists(file_path):
+    #     print(f"⚠️ File '{file_path}' not found in current directory.")
+    #     try:
+    #         import google.colab
+    #         print("   Detected Google Colab. Please upload your file now:")
+    #         from google.colab import files
+    #         uploaded = files.upload()
+    #         if uploaded:
+    #             # Use the uploaded filename (in case it differs)
+    #             file_path = list(uploaded.keys())[0]
+    #             print(f"   Received: {file_path}")
+    #         else:
+    #             print("   No file uploaded. Exiting.")
+    #             return
+    #     except ImportError:
+    #         print("   (Not in Colab, and file missing. Please check path.)")
+    #         return
 
     print(f"📂 Reading {file_path}...")
     
