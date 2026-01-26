@@ -1,0 +1,92 @@
+{
+  "session_1_depression": {
+    "num_turns": 6,
+    "slope": 0.11171822251186568,
+    "improvement": 0.4552331026061438,
+    "initial_state": -0.2092883606092073,
+    "final_state": 0.2459447419969365,
+    "trajectory": [
+      -0.2092883606092073,
+      -0.4579501181375235,
+      -0.22775086314650253,
+      0.14905350477201867,
+      -0.03889414914883672,
+      0.2459447419969365
+    ],
+    "turn_numbers": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "success": true,
+    "status": "success"
+  },
+  "session_2_toxic_positivity": {
+    "num_turns": 4,
+    "slope": 0.20654286450706413,
+    "improvement": 0.51735568146687,
+    "initial_state": -0.6652117176563479,
+    "final_state": -0.1478560361894779,
+    "trajectory": [
+      -0.6652117176563479,
+      -0.6800165331107564,
+      -0.1666549324407242,
+      -0.1478560361894779
+    ],
+    "turn_numbers": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "success": true,
+    "status": "success"
+  },
+  "session_3_anxiety_progress": {
+    "num_turns": 5,
+    "slope": 0.08693601656705144,
+    "improvement": 0.33856866342248393,
+    "initial_state": -0.2018455312238075,
+    "final_state": 0.13672313219867646,
+    "trajectory": [
+      -0.2018455312238075,
+      0.014608623221283788,
+      0.11206494643120095,
+      0.20683146204682998,
+      0.13672313219867646
+    ],
+    "turn_numbers": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "success": false,
+    "status": "no_improvement"
+  },
+  "session_4_no_empathy": {
+    "num_turns": 4,
+    "slope": 0.1240639018942601,
+    "improvement": 0.18286408329149706,
+    "initial_state": -0.4685498625622131,
+    "final_state": -0.28568577927071603,
+    "trajectory": [
+      -0.4685498625622131,
+      -0.5852117775124497,
+      0.10683499155566095,
+      -0.28568577927071603
+    ],
+    "turn_numbers": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "success": true,
+    "status": "success"
+  }
+}

@@ -1,0 +1,36 @@
+{
+    "hourglass_weights": [
+        0.34622376967438306,
+        0.13725480360443776,
+        0.1814400473396276,
+        0.3350813793815516
+    ],
+    "weaver_weights": {
+        "Clinical_Correctness": 0.07313297111195625,
+        "Therapeutic_Tone": 0.07739484511960702,
+        "Safety_Guard": 0.07384319228430923,
+        "Clinical_Protocol": 0.10010786931575091,
+        "Dialogue_Logic": -0.2738234723275806,
+        "Therapeutic_Protocol": 0.23398806766734453,
+        "Patient_Therapist_Alignment": -0.08393487909308192,
+        "Coherence": -0.08377470308036954
+    },
+    "global_ratio": [
+        -0.2422656745418822,
+        0.7577343254581179
+    ],
+    "calibration_accuracy": 1.0,
+    "clinical_weaver_correlation": -0.10763839350864535,
+    "num_samples": 59,
+    "constrained_regression": true,
+    "verifiers_used": [
+        "Clinical_Correctness",
+        "Therapeutic_Tone",
+        "Safety_Guard",
+        "Clinical_Protocol",
+        "Dialogue_Logic",
+        "Therapeutic_Protocol",
+        "Patient_Therapist_Alignment",
+        "Coherence"
+    ]
+}
