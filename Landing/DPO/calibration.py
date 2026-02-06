@@ -26,60 +26,17 @@ SUBSET_SIZE = 100
 DEVICE = 0 if torch.cuda.is_available() else -1
 
 # --- DEFINITIONS (Hourglass) ---
-# COMPLETE 28-LABEL MAPPING for GoEmotions
-# Format: [Introspection, Temper, Attitude, Sensitivity]
-HG_MATRIX = {
-    # --- POSITIVE INTROSPECTION (Joy) ---
-    "joy":          [1.0, 0.0, 0.0, 0.0],
-    "excitement":   [0.8, 0.0, 0.0, 0.3], # Joy + Sensitivity
-    "amusement":    [0.6, 0.0, 0.3, 0.0], # Joy + Attitude
-    "pride":        [0.7, 0.0, 0.2, 0.0], # Joy + Self-Attitude
-    "relief":       [0.4, 0.6, 0.0, 0.0], # Joy + Calmness (Temper)
-    
-    # --- NEGATIVE INTROSPECTION (Sadness) ---
-    "sadness":      [-1.0, 0.0, 0.0, 0.0],
-    "grief":        [-1.0, 0.0, 0.0, -0.2], # Deep Sadness + Withdrawal
-    "remorse":      [-0.6, 0.0, -0.3, 0.0], # Sadness + Self-Disgust (Attitude)
-    "disappointment": [-0.6, -0.2, 0.0, 0.0], # Sadness + Slight Anger
-    
-    # --- NEGATIVE TEMPER (Anger) ---
-    "anger":        [0.0, -1.0, 0.0, 0.0],
-    "annoyance":    [0.0, -0.6, 0.0, 0.0], # Mild Anger
-    "disapproval":  [0.0, -0.5, -0.4, 0.0], # Temper + Attitude
-    
-    # --- POSITIVE ATTITUDE (Pleasantness) ---
-    "admiration":   [0.1, 0.0, 0.9, 0.0], # High Attitude
-    "approval":     [0.0, 0.0, 0.7, 0.0],
-    "caring":       [0.2, 0.0, 0.8, 0.0], # Attitude + Slight Joy
-    "gratitude":    [0.3, 0.0, 0.7, 0.0], # Attitude + Joy
-    "love":         [0.5, 0.0, 0.5, 0.0], # Strong Joy + Attitude
-    "desire":       [0.2, 0.0, 0.5, 0.2], # Attitude + Sensitivity
-    
-    # --- NEGATIVE ATTITUDE (Disgust) ---
-    "disgust":      [0.0, 0.0, -1.0, 0.0],
-    "embarrassment":[ -0.3, 0.0, -0.4, 0.0], # Negative Self-Attitude
-    
-    # --- NEGATIVE SENSITIVITY (Fear) ---
-    "fear":         [0.0, 0.0, 0.0, -1.0],
-    "nervousness":  [0.0, -0.2, 0.0, -0.6], # Fear + Unstable Temper
-    "confusion":    [0.0, 0.0, 0.0, -0.3], # Low Sensitivity
-    
-    # --- POSITIVE SENSITIVITY (Eagerness) ---
-    "curiosity":    [0.0, 0.0, 0.0, 0.8],
-    "optimism":     [0.4, 0.0, 0.0, 0.5], # Joy + Sensitivity
-    "surprise":     [0.0, 0.0, 0.0, 0.6], # Neutral Sensitivity spike
-    "realization":  [0.1, 0.0, 0.0, 0.3],
-    
-    # --- NEUTRAL ---
-    "neutral":      [0.0, 0.0, 0.0, 0.0]
-}
+# Load from data/Hourglass Emotion Activation Matrix.xlsx
+from senticnet_matrix import HG_MATRIX
+
 
 def get_clinical_vector(text, pipe):
-    output = pipe(text[:512])[0] 
+    output = pipe(text[:512])[0]
     vector = np.zeros(4)
     for item in output:
-        if item['label'] in HG_MATRIX:
-            vector += np.array(HG_MATRIX[item['label']]) * item['score']
+        label = item.get("label", "")
+        if isinstance(label, str) and label.lower() in HG_MATRIX:
+            vector += np.array(HG_MATRIX[label.lower()]) * item["score"]
     return vector
 
 def fit_regression(X_diffs):

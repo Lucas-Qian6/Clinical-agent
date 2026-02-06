@@ -30,27 +30,17 @@ MODEL_PATH = "clinical_rl_model_v1_lora"
 DEVICE = 0 if torch.cuda.is_available() else -1
 
 # --- DEFINITIONS ---
-HG_MATRIX = {
-    "joy": [1.0, 0, 0, 0], "excitement": [0.8, 0, 0, 0.3], "amusement": [0.6, 0, 0.3, 0],
-    "pride": [0.7, 0, 0.2, 0], "relief": [0.4, 0.6, 0, 0],
-    "sadness": [-1.0, 0, 0, 0], "grief": [-1.0, 0, 0, -0.2], "remorse": [-0.6, 0, -0.3, 0],
-    "disappointment": [-0.6, -0.2, 0, 0],
-    "anger": [0, -1.0, 0, 0], "annoyance": [0, -0.6, 0, 0], "disapproval": [0, -0.5, -0.4, 0],
-    "admiration": [0.1, 0, 0.9, 0], "approval": [0, 0, 0.7, 0], "caring": [0.2, 0, 0.8, 0],
-    "gratitude": [0.3, 0, 0.7, 0], "love": [0.5, 0, 0.5, 0], "desire": [0.2, 0, 0.5, 0.2],
-    "disgust": [0, 0, -1.0, 0], "embarrassment": [-0.3, 0, -0.4, 0],
-    "fear": [0, 0, 0, -1.0], "nervousness": [0, -0.2, 0, -0.6], "confusion": [0, 0, 0, -0.3],
-    "curiosity": [0, 0, 0, 0.8], "optimism": [0.4, 0, 0, 0.5], "surprise": [0, 0, 0, 0.6],
-    "realization": [0.1, 0, 0, 0.3], "neutral": [0, 0, 0, 0]
-}
+# Load from data/Hourglass Emotion Activation Matrix.xlsx
+from senticnet_matrix import HG_MATRIX
+
 
 def get_clinical_vector(scores):
     vector = np.zeros(4)
-    # Handle list of dicts (standard pipeline output)
     if isinstance(scores, list):
         for item in scores:
-            if item['label'] in HG_MATRIX:
-                vector += np.array(HG_MATRIX[item['label']]) * item['score']
+            label = item.get("label", "")
+            if isinstance(label, str) and label.lower() in HG_MATRIX:
+                vector += np.array(HG_MATRIX[label.lower()]) * item["score"]
     return vector
 
 def main():
