@@ -1,0 +1,5 @@
+1. Weaver looks like it could help us with providing the RL reward signal with GRPO: https://github.com/HazyResearch/scaling-verification
+2. https://pytorch.org/blog/a-primer-on-llm-post-training/?ajs_aid=57910bf1-d592-4619-a7d5-295ab7d39433: provides a bit of a simpler understanding of DPO, PPO, GRPO and implementation detail. 
+3. https://huggingface.co/datasets/ShenLab/MentalChat16K: this looks to be a synthetic dataset that can be used off the shelf for training
+4. Please find a research paper that might be useful for us (with the useful snippets below). This approach could be useful for us to model mood / emotional state within the latent embedding space of the RL-trained therapist LLM, especially as it relates to real time monitoring of the patient's mood / emotional state. 
+https://cdn.prod.website-files.com/67ae55fdf3f0f13662b846c2/68e433dc2a604e7b1619ef4e_TraitBasis.pdf

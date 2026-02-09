@@ -10,3 +10,7 @@
 !.brokk/review.md
 !.brokk/project.properties
 Landing/DPO/Model/*.safetensors
+*.jsonl
+*.json
+*.xlsx
+*.csv

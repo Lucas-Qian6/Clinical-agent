@@ -42,8 +42,7 @@ def _setup_colab():
     return Path(DRIVE_BASE)
 
 SCRIPT_DIR = _setup_colab()
-# from emotion_conditioned_model import attach_emotion_injector
-# from emotion_dpo_trainer import EmotionDPOTrainer
+
 
 # --- CONFIGURATION ---
 # Reduced for Colab T4 (16GB): DPO creates policy + reference model, both need GPU
@@ -53,13 +52,14 @@ LOAD_IN_4BIT = True
 NUM_EPOCHS = 1
 LEARNING_RATE = 5e-6
 BETA = 0.1
-EMOTION_LAYER_IDX = 16
+EMOTION_LAYER_IDX = 8
 EMOTION_ALPHA = 0.1
+# MAX_TRAIN_SAMPLES = 500
 
 # Relative to SCRIPT_DIR (SCRIPT_DIR = DRIVE_BASE in Colab, else script folder)
 TRAIN_DATA = "psychocounsel_dpo_train.jsonl"
 OUTPUT_DIR = "psychocounsel_emotion_model_v1"
-MODEL_NAME = "unsloth/llama-3-8b-instruct-bnb-4bit"
+MODEL_NAME = "unsloth/llama-3.2-1b-instruct-bnb-4bit"
 # If still OOM on Colab free tier, try: "unsloth/llama-3.2-3b-instruct-bnb-4bit"
 
 
@@ -126,7 +126,7 @@ def main():
         else:
             out["emotion"] = example["emotion"]
         return out
-
+    # dataset = dataset.select(range(min(500, len(dataset))))
     dataset = dataset.map(ensure_emotion)
     print(f"   ✅ Loaded {len(dataset)} pairs")
 
@@ -220,19 +220,44 @@ def main():
     torch.cuda.empty_cache()
     PatchDPOTrainer()
 
+    print("\n🔄 Creating reference model (with injector for symmetry)...")
+    ref_model, _ = FastLanguageModel.from_pretrained(
+        model_name=MODEL_NAME,
+        max_seq_length=MAX_SEQ_LENGTH,
+        dtype=DTYPE,
+        load_in_4bit=LOAD_IN_4BIT,
+    )
+    ref_model = FastLanguageModel.get_peft_model(
+        ref_model,
+        r=16,
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
+                        "gate_proj", "up_proj", "down_proj"],
+        lora_alpha=16,
+        lora_dropout=0,
+        bias="none",
+        use_gradient_checkpointing="unsloth",
+        random_state=3407,
+    )
+    # Attach injector to ref model too (but don't train it)
+    ref_model = attach_emotion_injector(ref_model, emotion_dim=4, layer_idx=EMOTION_LAYER_IDX, alpha=EMOTION_ALPHA)
+    for param in ref_model.injector.parameters():
+        param.requires_grad = False  # Freeze ref model injector
+
+    print("   ✅ Reference model has injector (frozen)")
+
     dpo_trainer = EmotionDPOTrainer(
         model=model,
-        ref_model=None,
+        ref_model=ref_model,
         processing_class=tokenizer,
         train_dataset=dataset,
         data_collator=collate_with_emotion,
-        max_length=MAX_SEQ_LENGTH,
-        max_prompt_length=512,
         args=DPOConfig(
+            max_length=MAX_SEQ_LENGTH,
+            max_prompt_length=512,
             beta=BETA,
             per_device_train_batch_size=1,
-            gradient_accumulation_steps=8,
-            precompute_ref_log_probs=True,
+            gradient_accumulation_steps=16,
+            # precompute_ref_log_probs=True,
             warmup_ratio=0.1,
             num_train_epochs=NUM_EPOCHS,
             learning_rate=LEARNING_RATE,
@@ -244,17 +269,47 @@ def main():
             optim="adamw_8bit",
             seed=42,
             remove_unused_columns=False,
+            gradient_checkpointing=True,         # ⭐ ADD THIS
+            max_grad_norm=0.3,   
         ),
     )
 
     print("   ✅ Trainer ready (emotion will be passed to model)")
+
+
+
+    # ========== ADD TO YOUR TRAINING SCRIPT ==========
+    # After creating the trainer and before dpo_trainer.train():
+
+    print("\n⚠️  Running pre-training verification...")
+    verification_passed = verify_training_setup(
+        model=model,
+        ref_model=dpo_trainer.ref_model,  # or your explicit ref_model
+        tokenizer=tokenizer,
+        dpo_trainer=dpo_trainer,
+        dataset=dataset,
+    )
+
+    if not verification_passed:
+        print("\n🛑 Stopping - fix issues before training")
+        sys.exit(1)
+
+    import gc
+    torch.cuda.empty_cache()
+    gc.collect()
+
+    # ⭐ Set environment variable for memory fragmentation
+    import os
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
 
     # 7. Train
     print("\n" + "=" * 60)
     print("🎯 STARTING TRAINING")
     print("=" * 60)
     try:
-        dpo_trainer.train(resume_from_checkpoint=True)
+        dpo_trainer.train()
+        #resume_from_checkpoint=True
         print("\n✅ Training complete")
     except Exception as e:
         print(f"\n❌ Training failed: {e}")

@@ -54,14 +54,45 @@ class EmotionInjector(nn.Module):
     def _hook_fn(self, module: nn.Module, input: tuple, output: Any) -> Any:
         if self._current_emotion is None:
             return output
+
         emotion = self._current_emotion
         if emotion.dim() == 1:
             emotion = emotion.unsqueeze(0)
-        device = output.device
-        if emotion.device != device:
-            emotion = emotion.to(device)
-        projected = self.proj(emotion)
-        return output + self.alpha * projected.unsqueeze(1)
+
+        # Handle tuple output from transformer layers
+        if isinstance(output, tuple):
+            hidden_states = output[0]
+            device = hidden_states.device
+            dtype = hidden_states.dtype
+            
+            # Move emotion to correct device (dtype will be FP32, converted after projection)
+            if emotion.device != device:
+                emotion = emotion.to(device)
+            
+            # Project in FP32 (injector is FP32)
+            projected = self.proj(emotion)
+            
+            # Convert projected emotion to match hidden states dtype (FP16)
+            if projected.dtype != dtype:
+                projected = projected.to(dtype)
+            
+            # Add to hidden states
+            modified_hidden = hidden_states + self.alpha * projected.unsqueeze(1)
+            return (modified_hidden,) + output[1:]
+        else:
+            # Handle tensor output (shouldn't happen but keep for safety)
+            device = output.device
+            dtype = output.dtype
+            
+            if emotion.device != device:
+                emotion = emotion.to(device)
+            
+            projected = self.proj(emotion)
+            
+            if projected.dtype != dtype:
+                projected = projected.to(dtype)
+            
+            return output + self.alpha * projected.unsqueeze(1)
 
     def register_hook(self, model: nn.Module) -> None:
         """Register forward hook on the target layer."""
@@ -133,22 +164,6 @@ def attach_emotion_injector(
     layer_idx: int = 16,
     alpha: float = 0.1,
 ) -> nn.Module:
-    """
-    Attach emotion injector to a PEFT model WITHOUT wrapping it.
-    Use this for training so Unsloth/TRL recognize the model as PEFT.
-
-    The model gets an `injector` attribute. EmotionDPOTrainer sets
-    model.injector.set_emotion(emotion) before each forward pass.
-
-    Args:
-        model: PEFT model (e.g. Unsloth LoRA model)
-        emotion_dim: Dimension of emotion vector (default 4 for I,T,A,S)
-        layer_idx: Layer index for injection (default 16 = middle of 32 layers)
-        alpha: Scaling factor for injection (default 0.1)
-
-    Returns:
-        The same model with injector attached (in-place modification).
-    """
     hidden_size = _get_hidden_size(model)
     injector = EmotionInjector(
         emotion_dim=emotion_dim,
@@ -156,11 +171,25 @@ def attach_emotion_injector(
         layer_idx=layer_idx,
         alpha=alpha,
     )
-    injector = injector.to(next(model.parameters()).device)
+    
+    # ⭐ FIX: Keep injector in FP32, only move device
+    # Don't match dtype - gradient scaler can't handle FP16 params
+    model_param = next(model.parameters())
+    injector = injector.to(device=model_param.device, dtype=torch.float32)
+    
     injector.register_hook(model)
-    model.injector = injector
+    
+    # Register as submodule so it appears in model.parameters()
+    if hasattr(model, 'base_model'):
+        model.base_model.emotion_injector = injector
+    model.emotion_injector = injector
+    model.injector = injector  # Alias for easy access
+    
+    # Ensure trainable
+    for name, param in injector.named_parameters():
+        param.requires_grad = True
+    
     return model
-
 
 def wrap_model_with_emotion(
     model: nn.Module,

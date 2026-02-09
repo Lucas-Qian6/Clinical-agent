@@ -36,3 +36,30 @@ class EmotionDPOTrainer(DPOTrainer):
             model.injector.set_emotion(emotion_cat.to(device))
 
         return super().concatenated_forward(model, batch, is_ref_model)
+
+    def create_optimizer(self):
+        """Override to ensure injector parameters are trainable."""
+
+        # Get default optimizer first
+        optimizer = super().create_optimizer()
+
+        # Verify injector params are included
+        if hasattr(self.model, 'injector'):
+            injector_params = set(id(p) for p in self.model.injector.parameters())
+            optimizer_params = set(id(p) for group in optimizer.param_groups for p in group['params'])
+
+            missing = injector_params - optimizer_params
+            if missing:
+                print(f"⚠️  WARNING: {len(missing)} injector params NOT in optimizer!")
+                print("   Adding them manually...")
+
+                # Add missing params to optimizer
+                optimizer.add_param_group({
+                    'params': [p for p in self.model.injector.parameters() if id(p) in missing],
+                    'lr': self.args.learning_rate,
+                })
+                print(f"   ✅ Added {len(missing)} injector params to optimizer")
+            else:
+                print(f"   ✅ All {len(injector_params)} injector params in optimizer")
+
+        return optimizer
